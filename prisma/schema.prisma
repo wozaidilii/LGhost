@@ -1,0 +1,143 @@
+generator client {
+    provider = "prisma-client-js"
+    output   = "../generated/prisma"
+}
+
+datasource db {
+    provider = "postgresql"
+    url      = env("DATABASE_URL")
+}
+
+enum PolicyStatus {
+    PENDING_CONFIRMATION
+    CONFIRMED
+    CHANGES_REPORTED
+    TRANSFERRED
+}
+
+enum CallTaskStatus {
+    PENDING
+    IN_PROGRESS
+    COMPLETED
+    TRANSFERRED
+    FAILED
+}
+
+enum SessionOutcome {
+    CONFIRMED
+    CHANGES_REPORTED
+    TRANSFERRED
+    NO_ANSWER
+    FAILED
+}
+
+model Customer {
+    id        String   @id @default(cuid())
+    name      String
+    phone     String
+    nameKana  String?
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+    policies  Policy[]
+}
+
+model Policy {
+    id               String       @id @default(cuid())
+    customerId       String
+    customer         Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+    insuredChildName String
+    premiumAmount    Int
+    paymentMethod    String
+    hasChanges       Boolean      @default(false)
+    status           PolicyStatus @default(PENDING_CONFIRMATION)
+    notes            String?
+    createdAt        DateTime     @default(now())
+    updatedAt        DateTime     @updatedAt
+    callTasks        CallTask[]
+
+    @@index([customerId])
+    @@index([status])
+}
+
+model CallTask {
+    id        String         @id @default(cuid())
+    policyId  String
+    policy    Policy         @relation(fields: [policyId], references: [id], onDelete: Cascade)
+    status    CallTaskStatus @default(PENDING)
+    createdBy String
+    user      User           @relation(fields: [createdBy], references: [id])
+    createdAt DateTime       @default(now())
+    updatedAt DateTime       @updatedAt
+    sessions  CallSession[]
+
+    @@index([policyId])
+    @@index([status])
+    @@index([createdBy])
+}
+
+model CallSession {
+    id          String          @id @default(cuid())
+    callTaskId  String
+    callTask    CallTask        @relation(fields: [callTaskId], references: [id], onDelete: Cascade)
+    startedAt   DateTime        @default(now())
+    endedAt     DateTime?
+    outcome     SessionOutcome?
+    dialogState String          @default("greeting")
+    transcript  Json            @default("[]")
+    fieldChecks Json            @default("{}")
+
+    @@index([callTaskId])
+}
+
+model FaqEntry {
+    id       String @id @default(cuid())
+    question String
+    answer   String
+    category String @default("学資保険")
+}
+
+model Account {
+    id                       String  @id @default(cuid())
+    userId                   String
+    type                     String
+    provider                 String
+    providerAccountId        String
+    refresh_token            String?
+    access_token             String?
+    expires_at               Int?
+    token_type               String?
+    scope                    String?
+    id_token                 String?
+    session_state            String?
+    user                     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+    refresh_token_expires_in Int?
+
+    @@unique([provider, providerAccountId])
+}
+
+model Session {
+    id           String   @id @default(cuid())
+    sessionToken String   @unique
+    userId       String
+    expires      DateTime
+    user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model User {
+    id            String     @id @default(cuid())
+    name          String?
+    email         String?    @unique
+    emailVerified DateTime?
+    image         String?
+    accounts      Account[]
+    sessions      Session[]
+    callTasks     CallTask[]
+}
+
+model VerificationToken {
+    identifier String
+    token      String   @unique
+    expires    DateTime
+
+    @@unique([identifier, token])
+}
