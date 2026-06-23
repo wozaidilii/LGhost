@@ -38,7 +38,7 @@ export function DashboardShell({ children, userName }: DashboardShellProps) {
             </div>
             <div>
               <p className="font-bold text-slate-900">L-Ghost</p>
-              <p className="text-xs text-slate-500">X-Ghost MVP</p>
+              <p className="text-xs text-slate-500">Loamly · L-Ghost</p>
             </div>
           </Link>
         </div>

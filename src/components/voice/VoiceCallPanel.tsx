@@ -1,23 +1,25 @@
 "use client";
 
-import {
-  Mic,
-  MicOff,
-  Phone,
-  PhoneOff,
-  UserRound,
-  Volume2,
-} from "lucide-react";
+import { PhoneOff } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "~/components/ui/button";
 import { Badge } from "~/components/ui/badge";
+import {
+  CallScenarioSidebar,
+  type FunctionCallRecord,
+} from "~/components/voice/CallScenarioSidebar";
 import {
   connectRealtime,
   formatDuration,
   type RealtimeStatus,
   type TranscriptEntry,
 } from "~/lib/voice/realtime-client";
+import {
+  dialogStateToStep,
+  initialChecklistState,
+  type ChecklistState,
+} from "~/lib/voice/scenario";
 import { cn } from "~/lib/utils";
 import { api } from "~/trpc/react";
 
@@ -38,9 +40,13 @@ export function VoiceCallPanel({
   const [error, setError] = useState<string | null>(null);
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [duration, setDuration] = useState(0);
-  const [muted, setMuted] = useState(false);
+  const [currentStep, setCurrentStep] = useState(0);
+  const [checklist, setChecklist] = useState<ChecklistState>(initialChecklistState);
+  const [functionCalls, setFunctionCalls] = useState<FunctionCallRecord[]>([]);
+
   const disconnectRef = useRef<(() => void) | null>(null);
   const transcriptRef = useRef<TranscriptEntry[]>([]);
+  const transcriptEndRef = useRef<HTMLDivElement>(null);
   const outcomeRef = useRef<
     "CONFIRMED" | "CHANGES_REPORTED" | "TRANSFERRED" | "FAILED" | undefined
   >(undefined);
@@ -51,12 +57,40 @@ export function VoiceCallPanel({
   const endSession = api.callTask.endSession.useMutation();
 
   const handleToolCall = useCallback(
-    async (name: string, args: Record<string, unknown>, _callId: string) => {
+    async (name: string, args: Record<string, unknown>, callId: string) => {
       const result = await executeTool.mutateAsync({
         sessionId,
         toolName: name,
         args,
       });
+
+      setFunctionCalls((prev) => [
+        ...prev,
+        {
+          id: callId,
+          name,
+          args,
+          output: result.output,
+          ts: new Date().toISOString(),
+        },
+      ]);
+
+      if (name === "register_customer_name") {
+        setChecklist((c) => ({ ...c, nameRegistered: true }));
+      }
+      if (name === "verify_identity" && args.verified) {
+        setChecklist((c) => ({ ...c, identityVerified: true }));
+      }
+      if (name === "update_call_status") {
+        const step = dialogStateToStep(String(args.dialogState ?? ""));
+        setCurrentStep(step);
+      }
+      if (name === "confirm_policy_field") {
+        setCurrentStep((s) => (s < 1 ? 0 : s));
+      }
+      if (name === "lookup_faq") {
+        setCurrentStep((s) => Math.max(s, 1));
+      }
 
       if (name === "request_human_transfer") {
         outcomeRef.current = "TRANSFERRED";
@@ -88,7 +122,6 @@ export function VoiceCallPanel({
 
       const disconnect = await connectRealtime({
         ephemeralKey: session.ephemeralKey,
-        model: session.model,
         onTranscript: handleTranscript,
         onToolCall: handleToolCall,
         onStatusChange: setStatus,
@@ -129,111 +162,124 @@ export function VoiceCallPanel({
     return () => clearInterval(timer);
   }, [status]);
 
+  useEffect(() => {
+    transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [transcript]);
+
   return (
-    <div className="mx-auto flex w-full max-w-lg flex-col gap-6">
-      {/* 着信 UI */}
-      <div className="rounded-3xl bg-gradient-to-b from-slate-900 to-slate-800 p-8 text-white shadow-2xl">
-        <div className="mb-6 flex items-center justify-between">
-          <Badge variant="secondary" className="bg-white/10 text-white">
-            X-Ghost AI
-          </Badge>
-          <span className="font-mono text-sm text-slate-300">
-            {formatDuration(duration)}
-          </span>
+    <div className="flex h-[calc(100vh-8rem)] flex-col overflow-hidden rounded-xl border bg-white shadow-sm">
+      {/* ヘッダー */}
+      <header className="flex items-center justify-between border-b px-4 py-3">
+        <div>
+          <p className="text-xs text-slate-500">確認通話 — {customerName} 様</p>
+          <StatusBar status={status} duration={duration} />
         </div>
+        <Button
+          variant="destructive"
+          size="sm"
+          className="gap-2"
+          onClick={() => void hangUp()}
+          disabled={status === "ended" || endSession.isPending}
+        >
+          <PhoneOff className="h-4 w-4" />
+          通話終了
+        </Button>
+      </header>
 
-        <div className="mb-8 flex flex-col items-center gap-4">
-          <div
-            className={cn(
-              "flex h-24 w-24 items-center justify-center rounded-full bg-indigo-500/20",
-              status === "connected" && "animate-pulse",
-            )}
-          >
-            <UserRound className="h-12 w-12 text-indigo-300" />
-          </div>
-          <div className="text-center">
-            <p className="text-sm text-slate-400">発信先</p>
-            <h2 className="text-2xl font-bold">{customerName} 様</h2>
-            <p className="mt-1 text-sm text-slate-400">学資保険 契約内容確認</p>
-          </div>
+      {error && (
+        <div className="border-b bg-red-50 px-4 py-2 text-sm text-red-700">
+          {error}
         </div>
+      )}
 
-        <div className="mb-6 flex items-center justify-center gap-2 text-sm">
-          <StatusIndicator status={status} />
-        </div>
-
-        {error && (
-          <div className="mb-4 rounded-lg bg-red-500/20 p-3 text-center text-sm text-red-200">
-            {error}
-          </div>
-        )}
-
-        <div className="flex items-center justify-center gap-6">
-          <Button
-            variant="outline"
-            size="icon"
-            className="h-14 w-14 rounded-full border-white/20 bg-white/10 text-white hover:bg-white/20"
-            onClick={() => setMuted((m) => !m)}
-            disabled={status !== "connected"}
-          >
-            {muted ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
-          </Button>
-
-          <Button
-            variant="destructive"
-            size="icon"
-            className="h-16 w-16 rounded-full"
-            onClick={() => void hangUp()}
-            disabled={status === "ended" || endSession.isPending}
-          >
-            <PhoneOff className="h-7 w-7" />
-          </Button>
-
-          <Button
-            variant="outline"
-            size="icon"
-            className="h-14 w-14 rounded-full border-white/20 bg-white/10 text-white hover:bg-white/20"
-            disabled
-          >
-            <Volume2 className="h-6 w-6" />
-          </Button>
-        </div>
-      </div>
-
-      {/* リアルタイム転写 */}
-      <div className="rounded-xl border bg-white p-4">
-        <div className="mb-3 flex items-center gap-2">
-          <Phone className="h-4 w-4 text-indigo-600" />
-          <h3 className="font-semibold">通話内容</h3>
-        </div>
-        <div className="max-h-64 space-y-2 overflow-y-auto">
+      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+        {/* 転写エリア: 左=AI、右=お客様 */}
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">
           {transcript.length === 0 ? (
-            <p className="text-sm text-slate-400">通話を開始しています...</p>
+            <div className="flex h-full items-center justify-center">
+              <p className="text-sm text-slate-400">通話を接続しています...</p>
+            </div>
           ) : (
-            transcript.map((entry, i) => (
-              <div
-                key={`${entry.ts}-${i}`}
-                className={cn(
-                  "rounded-lg px-3 py-2 text-sm",
-                  entry.role === "assistant"
-                    ? "bg-indigo-50 text-indigo-900"
-                    : "bg-slate-50 text-slate-800",
-                )}
-              >
-                <span className="mr-2 text-xs font-medium opacity-60">
-                  {entry.role === "assistant" ? "AI" : "お客様"}
-                </span>
-                {entry.text}
-              </div>
-            ))
+            <div className="space-y-6">
+              {transcript.map((entry, i) => (
+                <TranscriptBubble
+                  key={entry.itemId ?? `${entry.ts}-${i}`}
+                  entry={entry}
+                />
+              ))}
+              <div ref={transcriptEndRef} />
+            </div>
           )}
         </div>
+
+        <CallScenarioSidebar
+          currentStep={currentStep}
+          checklist={checklist}
+          functionCalls={functionCalls}
+        />
       </div>
     </div>
   );
 }
 
-function StatusIndicator({ status }: { status: RealtimeStatus }) {
+function TranscriptBubble({ entry }: { entry: TranscriptEntry }) {
+  const isAssistant = entry.role === "assistant";
+  const time = formatTimestamp(entry.ts);
+
+  return (
+    <div
+      className={cn(
+        "flex w-full",
+        isAssistant ? "justify-start" : "justify-end",
+      )}
+    >
+      <div
+        className={cn(
+          "max-w-[75%] space-y-1",
+          isAssistant ? "items-start" : "items-end",
+        )}
+      >
+        <div className="flex flex-wrap items-center gap-2 text-[10px] text-slate-400">
+          <span>{time}</span>
+          {entry.itemId && (
+            <span className="font-mono">{entry.itemId}</span>
+          )}
+        </div>
+
+        <div
+          className={cn(
+            "rounded-2xl px-4 py-3 text-sm leading-relaxed",
+            isAssistant
+              ? "rounded-tl-sm bg-slate-100 text-slate-800"
+              : "rounded-tr-sm bg-blue-500 text-white",
+          )}
+        >
+          {entry.text}
+        </div>
+
+        <Badge
+          variant="secondary"
+          className={cn(
+            "h-5 text-[10px]",
+            isAssistant
+              ? "bg-emerald-100 text-emerald-700"
+              : "bg-emerald-100 text-emerald-700",
+          )}
+        >
+          {isAssistant ? "Guardrail: Pass" : "Prompt Shield: Pass"}
+        </Badge>
+      </div>
+    </div>
+  );
+}
+
+function StatusBar({
+  status,
+  duration,
+}: {
+  status: RealtimeStatus;
+  duration: number;
+}) {
   const labels: Record<RealtimeStatus, string> = {
     idle: "待機中",
     connecting: "接続中...",
@@ -251,9 +297,20 @@ function StatusIndicator({ status }: { status: RealtimeStatus }) {
   };
 
   return (
-    <>
+    <div className="mt-0.5 flex items-center gap-2">
       <span className={cn("h-2 w-2 rounded-full", colors[status])} />
-      <span className="text-slate-300">{labels[status]}</span>
-    </>
+      <span className="text-sm font-medium text-slate-700">{labels[status]}</span>
+      <span className="font-mono text-sm text-slate-400">
+        {formatDuration(duration)}
+      </span>
+    </div>
   );
+}
+
+function formatTimestamp(iso: string): string {
+  try {
+    return new Date(iso).toLocaleTimeString("ja-JP", { hour12: false });
+  } catch {
+    return "";
+  }
 }

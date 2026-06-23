@@ -6,7 +6,7 @@ import { Geist } from "next/font/google";
 import { TRPCReactProvider } from "~/trpc/react";
 
 export const metadata: Metadata = {
-  title: "L-Ghost | X-Ghost MVP",
+  title: "L-Ghost | Loamly",
   description: "AI 音声エージェントによる学資保険契約確認プラットフォーム",
   icons: [{ rel: "icon", url: "/favicon.ico" }],
 };

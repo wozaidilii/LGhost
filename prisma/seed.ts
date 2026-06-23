@@ -80,7 +80,7 @@ async function main() {
       paymentMethod: "月払 15,000円",
       hasChanges: false,
       status: "PENDING_CONFIRMATION",
-      notes: "X-Ghost デモ用契約",
+      notes: "Loamly L-Ghost デモ用契約",
     },
   });
 

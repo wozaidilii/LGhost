@@ -1,6 +1,6 @@
 # L-Ghost
 
-X-Ghost 风格日文 AI 电话客服 MVP — 学资保险合同确认场景。
+Loamly 出品的 L-Ghost — 日文 AI 电话客服 MVP，学资保险合同确认场景。
 
 ## 技术栈
 
@@ -30,12 +30,27 @@ OPENAI_API_KEY=       # OpenAI Realtime API
 DATABASE_URL=postgresql://postgres:password@localhost:5432/L-Ghost
 ```
 
-### 2. 数据库
+### 3. 生产数据库（Neon）— 必须用独立库
+
+⚠️ **不要与 histroguessr 等项目共用 `neondb` 数据库**，否则 `db push` 会删除现有表。
+
+1. 打开 [Neon Console](https://console.neon.tech) → 你的 Project
+2. **Databases → Create database** → 名称例如 `lghost`
+3. 复制新库的 Connection string（pooled）
+4. 写入本地 `.env.neon`（已 gitignore）：
 
 ```bash
-./start-database.sh   # 或自行启动 PostgreSQL
-npm run db:push
-npm run db:seed
+DATABASE_URL=postgresql://...@.../lghost?sslmode=require
+DATABASE_URL_UNPOOLED=postgresql://...@.../lghost?sslmode=require
+```
+
+5. 在 **Vercel → l-ghost → Settings → Environment Variables** 更新 `DATABASE_URL` 指向 `/lghost`
+6. 初始化：
+
+```bash
+npm run db:push:prod
+npm run db:seed:prod
+vercel --prod   # Redeploy
 ```
 
 ### 3. 开发

@@ -2,14 +2,29 @@
 export const REALTIME_TOOLS = [
   {
     type: "function" as const,
+    name: "register_customer_name",
+    description: "お客様の氏名（フルネーム）を登録する。本人確認の最初のステップで必ず呼び出す",
+    parameters: {
+      type: "object",
+      properties: {
+        fullName: {
+          type: "string",
+          description: "お客様が申告したフルネーム",
+        },
+      },
+      required: ["fullName"],
+    },
+  },
+  {
+    type: "function" as const,
     name: "verify_identity",
-    description: "本人確認の結果を記録する",
+    description: "本人確認照合の結果を記録する。氏名登録後、契約者情報と照合した結果を記録する",
     parameters: {
       type: "object",
       properties: {
         verified: {
           type: "boolean",
-          description: "本人確認が成功したか",
+          description: "本人確認照合が成功したか",
         },
         note: {
           type: "string",
@@ -52,7 +67,7 @@ export const REALTIME_TOOLS = [
   {
     type: "function" as const,
     name: "lookup_faq",
-    description: "学資保険に関するFAQを検索する",
+    description: "学資保険に関するFAQを検索し、お客様の質問に回答する",
     parameters: {
       type: "object",
       properties: {
@@ -67,12 +82,21 @@ export const REALTIME_TOOLS = [
   {
     type: "function" as const,
     name: "update_call_status",
-    description: "通話・契約のステータスを更新する",
+    description: "通話フェーズ・契約ステータスを更新する",
     parameters: {
       type: "object",
       properties: {
         dialogState: {
           type: "string",
+          enum: [
+            "greeting",
+            "identity_check",
+            "contract_confirm",
+            "qa",
+            "closing",
+            "completed",
+            "transfer",
+          ],
           description: "現在の対話フェーズ",
         },
         outcome: {

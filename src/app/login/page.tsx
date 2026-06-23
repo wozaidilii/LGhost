@@ -11,8 +11,22 @@ import {
 } from "~/components/ui/card";
 import { auth, signIn } from "~/server/auth";
 
-export default async function LoginPage() {
+type LoginPageProps = {
+  searchParams: Promise<{ error?: string }>;
+};
+
+const authErrors: Record<string, string> = {
+  Configuration:
+    "認証設定エラー: AUTH_SECRET / Google OAuth / データベース接続を確認してください。Vercel で環境変数追加後に Redeploy が必要です。",
+  AccessDenied: "アクセスが拒否されました。",
+  OAuthSignin: "Google ログインの開始に失敗しました。",
+  OAuthCallback: "Google コールバックに失敗しました。Redirect URI を確認してください。",
+  Default: "ログインに失敗しました。もう一度お試しください。",
+};
+
+export default async function LoginPage({ searchParams }: LoginPageProps) {
   const session = await auth();
+  const { error } = await searchParams;
 
   if (session) {
     return (
@@ -47,6 +61,11 @@ export default async function LoginPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {error && (
+            <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              {authErrors[error] ?? authErrors.Default}
+            </div>
+          )}
           <form
             action={async () => {
               "use server";
@@ -58,7 +77,7 @@ export default async function LoginPage() {
             </Button>
           </form>
           <p className="mt-4 text-center text-xs text-slate-400">
-            Gen-AX X-Ghost MVP — ブラウザ音声デモ
+            Loamly L-Ghost — ブラウザ音声デモ
           </p>
         </CardContent>
       </Card>

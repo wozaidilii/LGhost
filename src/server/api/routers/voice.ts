@@ -6,7 +6,13 @@ import { REALTIME_TOOLS } from "~/lib/voice/tools";
 import { env } from "~/env";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 
-const REALTIME_MODEL = "gpt-4o-realtime-preview";
+/** GA Realtime API モデル */
+const REALTIME_MODEL = "gpt-realtime";
+
+type ClientSecretResponse = {
+  value?: string;
+  client_secret?: { value?: string };
+};
 
 export const voiceRouter = createTRPCRouter({
   createSession: protectedProcedure
@@ -31,28 +37,34 @@ export const voiceRouter = createTRPCRouter({
 
       const instructions = buildSystemPrompt(task.policy);
 
-      const response = await fetch("https://api.openai.com/v1/realtime/sessions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${env.OPENAI_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: REALTIME_MODEL,
-          voice: "shimmer",
-          instructions,
-          tools: REALTIME_TOOLS,
-          input_audio_transcription: { model: "whisper-1" },
-          turn_detection: {
-            type: "server_vad",
-            threshold: 0.5,
-            prefix_padding_ms: 300,
-            silence_duration_ms: 500,
-            create_response: true,
-            interrupt_response: true,
+      const response = await fetch(
+        "https://api.openai.com/v1/realtime/client_secrets",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+            "Content-Type": "application/json",
           },
-        }),
-      });
+          body: JSON.stringify({
+            session: {
+              type: "realtime",
+              model: REALTIME_MODEL,
+              voice: "shimmer",
+              instructions,
+              tools: REALTIME_TOOLS,
+              input_audio_transcription: { model: "whisper-1" },
+              turn_detection: {
+                type: "server_vad",
+                threshold: 0.5,
+                prefix_padding_ms: 300,
+                silence_duration_ms: 500,
+                create_response: true,
+                interrupt_response: true,
+              },
+            },
+          }),
+        },
+      );
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -62,12 +74,9 @@ export const voiceRouter = createTRPCRouter({
         });
       }
 
-      const data = (await response.json()) as {
-        client_secret?: { value?: string };
-        id?: string;
-      };
+      const data = (await response.json()) as ClientSecretResponse;
+      const ephemeralKey = data.value ?? data.client_secret?.value;
 
-      const ephemeralKey = data.client_secret?.value;
       if (!ephemeralKey) {
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",

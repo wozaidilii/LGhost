@@ -15,6 +15,7 @@ const transcriptEntrySchema = z.object({
   role: z.enum(["user", "assistant", "system"]),
   text: z.string(),
   ts: z.string(),
+  itemId: z.string().optional(),
 });
 
 export const callRouter = createTRPCRouter({
@@ -197,12 +198,34 @@ export const callRouter = createTRPCRouter({
         (session.fieldChecks as Record<string, unknown>) ?? {};
 
       switch (toolName) {
+        case "register_customer_name": {
+          const fullName = String(args.fullName ?? "").trim();
+          const registered = fullName.length > 0;
+          if (registered) {
+            fieldChecks.customerName = fullName;
+            fieldChecks.nameRegistered = true;
+          }
+          await ctx.db.callSession.update({
+            where: { id: input.sessionId },
+            data: {
+              fieldChecks: fieldChecks as Prisma.InputJsonValue,
+              dialogState: "identity_check",
+            },
+          });
+          return {
+            output: JSON.stringify({
+              success: registered,
+              fullName,
+              message: registered
+                ? "氏名を登録しました"
+                : "氏名が空のため登録できませんでした",
+            }),
+          };
+        }
+
         case "verify_identity": {
           const verified = Boolean(args.verified);
           fieldChecks.identityVerified = verified;
-          if (isDialogState(String(args.dialogState ?? ""))) {
-            // noop
-          }
           await ctx.db.callSession.update({
             where: { id: input.sessionId },
             data: {
@@ -215,8 +238,8 @@ export const callRouter = createTRPCRouter({
               success: true,
               verified,
               message: verified
-                ? "本人確認を記録しました"
-                : "本人確認失敗を記録しました",
+                ? "本人確認照合に成功しました"
+                : "本人確認照合に失敗しました",
             }),
           };
         }

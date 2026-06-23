@@ -2,6 +2,7 @@ export type TranscriptEntry = {
   role: "user" | "assistant" | "system";
   text: string;
   ts: string;
+  itemId?: string;
 };
 
 export type RealtimeStatus =
@@ -19,25 +20,23 @@ type ToolCallHandler = (
 
 type RealtimeClientOptions = {
   ephemeralKey: string;
-  model: string;
   onTranscript: (entry: TranscriptEntry) => void;
   onToolCall: ToolCallHandler;
   onStatusChange: (status: RealtimeStatus) => void;
   onError: (message: string) => void;
 };
 
-/** OpenAI Realtime API WebRTC 接続 */
+function createItemId(): string {
+  const rand = Math.random().toString(36).slice(2, 11);
+  return `item_${Date.now().toString(36)}${rand}`;
+}
+
+/** OpenAI Realtime API WebRTC 接続（GA） */
 export async function connectRealtime(
   options: RealtimeClientOptions,
 ): Promise<() => void> {
-  const {
-    ephemeralKey,
-    model,
-    onTranscript,
-    onToolCall,
-    onStatusChange,
-    onError,
-  } = options;
+  const { ephemeralKey, onTranscript, onToolCall, onStatusChange, onError } =
+    options;
 
   onStatusChange("connecting");
 
@@ -71,13 +70,7 @@ export async function connectRealtime(
 
   dc.onopen = () => {
     onStatusChange("connected");
-    // AI に先に話させる
-    dc.send(
-      JSON.stringify({
-        type: "response.create",
-        response: { modalities: ["text", "audio"] },
-      }),
-    );
+    dc.send(JSON.stringify({ type: "response.create" }));
   };
 
   dc.onmessage = (event) => {
@@ -97,17 +90,14 @@ export async function connectRealtime(
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
 
-  const sdpResponse = await fetch(
-    `https://api.openai.com/v1/realtime?model=${encodeURIComponent(model)}`,
-    {
-      method: "POST",
-      body: offer.sdp,
-      headers: {
-        Authorization: `Bearer ${ephemeralKey}`,
-        "Content-Type": "application/sdp",
-      },
+  const sdpResponse = await fetch("https://api.openai.com/v1/realtime/calls", {
+    method: "POST",
+    body: offer.sdp,
+    headers: {
+      Authorization: `Bearer ${ephemeralKey}`,
+      "Content-Type": "application/sdp",
     },
-  );
+  });
 
   if (!sdpResponse.ok) {
     const errText = await sdpResponse.text();
@@ -127,6 +117,15 @@ export async function connectRealtime(
   };
 }
 
+function extractTranscript(msg: Record<string, unknown>): string {
+  const direct = msg.transcript ?? msg.text;
+  if (typeof direct === "string" && direct.trim()) return direct.trim();
+
+  const item = msg.item as { content?: Array<{ transcript?: string }> } | undefined;
+  const fromItem = item?.content?.find((c) => c.transcript)?.transcript;
+  return typeof fromItem === "string" ? fromItem.trim() : "";
+}
+
 async function handleRealtimeEvent(
   msg: Record<string, unknown>,
   ctx: {
@@ -138,24 +137,30 @@ async function handleRealtimeEvent(
 ) {
   const type = String(msg.type ?? "");
 
-  if (type === "response.audio_transcript.done") {
-    const transcript = String(msg.transcript ?? "");
+  // GA / Legacy 双方の AI 転写イベント
+  if (
+    type === "response.output_audio_transcript.done" ||
+    type === "response.audio_transcript.done"
+  ) {
+    const transcript = extractTranscript(msg);
     if (transcript) {
       ctx.onTranscript({
         role: "assistant",
         text: transcript,
         ts: new Date().toISOString(),
+        itemId: createItemId(),
       });
     }
   }
 
   if (type === "conversation.item.input_audio_transcription.completed") {
-    const transcript = String(msg.transcript ?? "");
+    const transcript = extractTranscript(msg);
     if (transcript) {
       ctx.onTranscript({
         role: "user",
         text: transcript,
         ts: new Date().toISOString(),
+        itemId: createItemId(),
       });
     }
   }

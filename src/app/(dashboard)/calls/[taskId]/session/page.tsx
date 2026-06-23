@@ -39,21 +39,12 @@ function SessionPageInner({ taskId }: { taskId: string }) {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="text-center">
-        <h1 className="text-xl font-bold text-slate-900">確認通話</h1>
-        <p className="text-sm text-slate-500">
-          {task.policy.customer.name} 様 — 学資保険契約確認
-        </p>
-      </div>
-
-      <VoiceCallPanel
-        callTaskId={taskId}
-        sessionId={sessionId}
-        customerName={task.policy.customer.name}
-        onEnded={() => router.push(`/calls/${taskId}`)}
-      />
-    </div>
+    <VoiceCallPanel
+      callTaskId={taskId}
+      sessionId={sessionId}
+      customerName={task.policy.customer.name}
+      onEnded={() => router.push(`/calls/${taskId}`)}
+    />
   );
 }
 

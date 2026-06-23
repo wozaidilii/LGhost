@@ -11,7 +11,8 @@ declare module "next-auth" {
 
 /** Edge 互換 — middleware 用（Prisma / env.js を import しない） */
 export const authConfig = {
-  // Vercel / カスタムドメインでは必須。AUTH_URL 未設定でも Host ヘッダーから URL を構築
+  secret: process.env.AUTH_SECRET,
+  // Vercel / カスタムドメインでは必須
   trustHost: true,
   providers: [
     GoogleProvider({
@@ -22,6 +23,7 @@ export const authConfig = {
   session: { strategy: "jwt" },
   pages: {
     signIn: "/login",
+    error: "/login",
   },
   callbacks: {
     jwt: ({ token, user }) => {
@@ -37,6 +39,14 @@ export const authConfig = {
         id: token.sub ?? "",
       },
     }),
+    signIn: ({ user, account }) => {
+      // OAuth 成功時のみ DB 書き込みが走る — 失敗時はログに残す
+      if (!user?.email && account?.provider === "google") {
+        console.error("[auth] Google signIn: no email returned");
+        return false;
+      }
+      return true;
+    },
     authorized: ({ auth, request }) => {
       const isLoggedIn = !!auth?.user;
       const pathname = request.nextUrl.pathname;
