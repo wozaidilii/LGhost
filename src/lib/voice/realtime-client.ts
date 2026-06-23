@@ -31,6 +31,13 @@ function createItemId(): string {
   return `item_${Date.now().toString(36)}${rand}`;
 }
 
+/** AI 発話中はマイク入力を一時停止し、スピーカー音の誤検知を防ぐ */
+function setMicEnabled(track: MediaStreamTrack | undefined, enabled: boolean) {
+  if (track && track.enabled !== enabled) {
+    track.enabled = enabled;
+  }
+}
+
 /** OpenAI Realtime API WebRTC 接続（GA） */
 export async function connectRealtime(
   options: RealtimeClientOptions,
@@ -53,34 +60,63 @@ export async function connectRealtime(
 
   let mediaStream: MediaStream;
   try {
-    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    mediaStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: { ideal: true },
+        noiseSuppression: { ideal: true },
+        autoGainControl: { ideal: true },
+      },
+    });
   } catch {
     onError("マイクへのアクセスが拒否されました");
     onStatusChange("error");
     throw new Error("Microphone access denied");
   }
 
-  const track = mediaStream.getTracks()[0];
-  if (track) {
-    pc.addTrack(track, mediaStream);
+  const micTrack = mediaStream.getAudioTracks()[0];
+  if (micTrack) {
+    pc.addTrack(micTrack, mediaStream);
   }
 
   const dc = pc.createDataChannel("oai-events");
   const pendingToolCalls = new Set<string>();
+  let aiSpeaking = false;
+  let pendingMicRestore: ReturnType<typeof setTimeout> | null = null;
+
+  const muteMicWhileAiSpeaks = () => {
+    if (pendingMicRestore) {
+      clearTimeout(pendingMicRestore);
+      pendingMicRestore = null;
+    }
+    aiSpeaking = true;
+    setMicEnabled(micTrack, false);
+  };
+
+  const scheduleMicRestore = (delayMs = 400) => {
+    if (pendingMicRestore) clearTimeout(pendingMicRestore);
+    pendingMicRestore = setTimeout(() => {
+      aiSpeaking = false;
+      setMicEnabled(micTrack, true);
+      pendingMicRestore = null;
+    }, delayMs);
+  };
 
   dc.onopen = () => {
     onStatusChange("connected");
+    // 発信側: AI が最初に短く挨拶する
     dc.send(JSON.stringify({ type: "response.create" }));
   };
 
   dc.onmessage = (event) => {
     try {
       const msg = JSON.parse(String(event.data)) as Record<string, unknown>;
+      handleAiSpeakingEvents(msg, { muteMicWhileAiSpeaks, scheduleMicRestore });
       void handleRealtimeEvent(msg, {
         dc,
         onTranscript,
         onToolCall,
         pendingToolCalls,
+        isAiSpeaking: () => aiSpeaking,
       });
     } catch {
       // 解析不能なイベントは無視
@@ -110,11 +146,36 @@ export async function connectRealtime(
   await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
 
   return () => {
+    if (pendingMicRestore) clearTimeout(pendingMicRestore);
     onStatusChange("ended");
     mediaStream.getTracks().forEach((t) => t.stop());
     pc.close();
     audioEl.remove();
   };
+}
+
+/** AI 音声出力の開始/終了を検知してマイクを制御 */
+function handleAiSpeakingEvents(
+  msg: Record<string, unknown>,
+  ctx: {
+    muteMicWhileAiSpeaks: () => void;
+    scheduleMicRestore: (delayMs?: number) => void;
+  },
+) {
+  const type = String(msg.type ?? "");
+
+  const aiStarted =
+    type === "response.created" ||
+    type === "response.output_audio.started" ||
+    type === "output_audio_buffer.started";
+
+  const aiEnded =
+    type === "response.done" ||
+    type === "response.output_audio.done" ||
+    type === "output_audio_buffer.stopped";
+
+  if (aiStarted) ctx.muteMicWhileAiSpeaks();
+  if (aiEnded) ctx.scheduleMicRestore(500);
 }
 
 function extractTranscript(msg: Record<string, unknown>): string {
@@ -126,6 +187,17 @@ function extractTranscript(msg: Record<string, unknown>): string {
   return typeof fromItem === "string" ? fromItem.trim() : "";
 }
 
+/** 短すぎる・ノイズ由来と思われるユーザー転写を除外 */
+function isLikelyValidUserTranscript(text: string): boolean {
+  const trimmed = text.trim();
+  if (trimmed.length < 2) return false;
+  // 英語のみの短い幻聴（スピーカー漏れ）を除外
+  if (/^[a-zA-Z\s.,!?'"()-]+$/.test(trimmed) && trimmed.length < 40) {
+    return false;
+  }
+  return true;
+}
+
 async function handleRealtimeEvent(
   msg: Record<string, unknown>,
   ctx: {
@@ -133,11 +205,11 @@ async function handleRealtimeEvent(
     onTranscript: (entry: TranscriptEntry) => void;
     onToolCall: ToolCallHandler;
     pendingToolCalls: Set<string>;
+    isAiSpeaking: () => boolean;
   },
 ) {
   const type = String(msg.type ?? "");
 
-  // GA / Legacy 双方の AI 転写イベント
   if (
     type === "response.output_audio_transcript.done" ||
     type === "response.audio_transcript.done"
@@ -155,7 +227,12 @@ async function handleRealtimeEvent(
 
   if (type === "conversation.item.input_audio_transcription.completed") {
     const transcript = extractTranscript(msg);
-    if (transcript) {
+    // AI 発話中の拾い込み・英語幻聴を UI に出さない
+    if (
+      transcript &&
+      !ctx.isAiSpeaking() &&
+      isLikelyValidUserTranscript(transcript)
+    ) {
       ctx.onTranscript({
         role: "user",
         text: transcript,
@@ -193,6 +270,7 @@ async function handleRealtimeEvent(
       }),
     );
 
+    // ツール結果後も AI は短く返答のみ。次の質問はお客様の返答後に
     ctx.dc.send(JSON.stringify({ type: "response.create" }));
     ctx.pendingToolCalls.delete(callId);
   }

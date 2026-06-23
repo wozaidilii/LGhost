@@ -1,13 +1,11 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
-import { buildSystemPrompt } from "~/lib/voice/system-prompt";
-import { REALTIME_TOOLS } from "~/lib/voice/tools";
 import { env } from "~/env";
+import { buildSystemPrompt } from "~/lib/voice/system-prompt";
+import { buildRealtimeSessionConfig, REALTIME_MODEL } from "~/lib/voice/session-config";
+import { REALTIME_TOOLS } from "~/lib/voice/tools";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
-
-/** GA Realtime API モデル */
-const REALTIME_MODEL = "gpt-realtime";
 
 type ClientSecretResponse = {
   value?: string;
@@ -46,28 +44,7 @@ export const voiceRouter = createTRPCRouter({
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            session: {
-              type: "realtime",
-              model: REALTIME_MODEL,
-              instructions,
-              tools: REALTIME_TOOLS,
-              audio: {
-                input: {
-                  transcription: { model: "whisper-1" },
-                  turn_detection: {
-                    type: "server_vad",
-                    threshold: 0.5,
-                    prefix_padding_ms: 300,
-                    silence_duration_ms: 500,
-                    create_response: true,
-                    interrupt_response: true,
-                  },
-                },
-                output: {
-                  voice: "shimmer",
-                },
-              },
-            },
+            session: buildRealtimeSessionConfig(instructions, REALTIME_TOOLS),
           }),
         },
       );
