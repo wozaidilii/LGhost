@@ -1,8 +1,6 @@
 import { type DefaultSession, type NextAuthConfig } from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
 
-import { env } from "~/env";
-
 declare module "next-auth" {
   interface Session extends DefaultSession {
     user: {
@@ -11,12 +9,14 @@ declare module "next-auth" {
   }
 }
 
-/** Edge 互換 — middleware 用（Prisma アダプターなし） */
+/** Edge 互換 — middleware 用（Prisma / env.js を import しない） */
 export const authConfig = {
+  // Vercel / カスタムドメインでは必須。AUTH_URL 未設定でも Host ヘッダーから URL を構築
+  trustHost: true,
   providers: [
     GoogleProvider({
-      clientId: env.AUTH_GOOGLE_ID ?? "",
-      clientSecret: env.AUTH_GOOGLE_SECRET ?? "",
+      clientId: process.env.AUTH_GOOGLE_ID ?? "",
+      clientSecret: process.env.AUTH_GOOGLE_SECRET ?? "",
     }),
   ],
   session: { strategy: "jwt" },
