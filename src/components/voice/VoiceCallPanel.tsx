@@ -46,8 +46,7 @@ export function VoiceCallPanel({
 
   const disconnectRef = useRef<(() => void) | null>(null);
   const transcriptRef = useRef<TranscriptEntry[]>([]);
-  const aiEndRef = useRef<HTMLDivElement>(null);
-  const userEndRef = useRef<HTMLDivElement>(null);
+  const transcriptEndRef = useRef<HTMLDivElement>(null);
   const outcomeRef = useRef<
     "CONFIRMED" | "CHANGES_REPORTED" | "TRANSFERRED" | "FAILED" | undefined
   >(undefined);
@@ -200,16 +199,9 @@ export function VoiceCallPanel({
     return () => clearInterval(timer);
   }, [status]);
 
-  const aiEntries = transcript.filter((e) => e.role === "assistant");
-  const userEntries = transcript.filter((e) => e.role === "user");
-
   useEffect(() => {
-    aiEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [aiEntries.length]);
-
-  useEffect(() => {
-    userEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [userEntries]);
+    transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [transcript]);
 
   return (
     <div className="flex h-[calc(100vh-8rem)] flex-col overflow-hidden rounded-xl border bg-white shadow-sm">
@@ -236,26 +228,29 @@ export function VoiceCallPanel({
         </div>
       )}
 
-      <div className="flex min-h-0 flex-1">
-        {/* 左: AI 発話 */}
-        <TranscriptColumn
-          title="AI オペレーター"
-          emptyText="AI の発話がここに表示されます"
-          entries={aiEntries}
-          align="left"
-          endRef={aiEndRef}
-          isLoading={status === "connecting"}
-        />
-
-        {/* 右: お客様発話 */}
-        <TranscriptColumn
-          title="お客様"
-          emptyText="お客様の発話がここに表示されます"
-          entries={userEntries}
-          align="right"
-          endRef={userEndRef}
-          isLoading={status === "connecting"}
-        />
+      <div className="flex min-h-0 flex-1 lg:flex-row">
+        {/* 対話タイムライン（ChatGPT 風） */}
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6">
+          {status === "connecting" ? (
+            <div className="flex h-full items-center justify-center">
+              <p className="text-sm text-slate-400">通話を接続しています...</p>
+            </div>
+          ) : transcript.length === 0 ? (
+            <div className="flex h-full items-center justify-center">
+              <p className="text-sm text-slate-400">会話が始まるとここに表示されます</p>
+            </div>
+          ) : (
+            <div className="mx-auto flex max-w-3xl flex-col gap-5">
+              {transcript.map((entry, i) => (
+                <TranscriptBubble
+                  key={entry.itemId ?? `${entry.ts}-${i}`}
+                  entry={entry}
+                />
+              ))}
+              <div ref={transcriptEndRef} />
+            </div>
+          )}
+        </div>
 
         <CallScenarioSidebar
           currentStep={currentStep}
@@ -267,65 +262,31 @@ export function VoiceCallPanel({
   );
 }
 
-function TranscriptColumn({
-  title,
-  emptyText,
-  entries,
-  align,
-  endRef,
-  isLoading,
-}: {
-  title: string;
-  emptyText: string;
-  entries: TranscriptEntry[];
-  align: "left" | "right";
-  endRef: React.RefObject<HTMLDivElement | null>;
-  isLoading: boolean;
-}) {
-  const isAssistant = align === "left";
-
-  return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col border-r last:border-r-0 lg:max-w-[calc(50%-10rem)]">
-      <div className="border-b bg-slate-50 px-4 py-2">
-        <h3 className="text-xs font-semibold text-slate-600">{title}</h3>
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
-        {isLoading ? (
-          <p className="text-sm text-slate-400">接続中...</p>
-        ) : entries.length === 0 ? (
-          <p className="text-sm text-slate-400">{emptyText}</p>
-        ) : (
-          <div className="space-y-4">
-            {entries.map((entry, i) => (
-              <TranscriptBubble
-                key={entry.itemId ?? `${entry.ts}-${i}`}
-                entry={entry}
-                isAssistant={isAssistant}
-              />
-            ))}
-            <div ref={endRef} />
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function TranscriptBubble({
-  entry,
-  isAssistant,
-}: {
-  entry: TranscriptEntry;
-  isAssistant: boolean;
-}) {
+function TranscriptBubble({ entry }: { entry: TranscriptEntry }) {
+  const isAssistant = entry.role === "assistant";
   const time = formatTimestamp(entry.ts);
   const isTranscribing =
     entry.status === "transcribing" || entry.status === "partial";
 
   return (
-    <div className={cn("flex w-full", isAssistant ? "justify-start" : "justify-end")}>
-      <div className="max-w-[90%] space-y-1">
-        <div className="flex flex-wrap items-center gap-2 text-[10px] text-slate-400">
+    <div
+      className={cn(
+        "flex w-full",
+        isAssistant ? "justify-start" : "justify-end",
+      )}
+    >
+      <div
+        className={cn(
+          "max-w-[min(85%,36rem)] space-y-1",
+          isAssistant ? "items-start" : "items-end",
+        )}
+      >
+        <div
+          className={cn(
+            "flex flex-wrap items-center gap-2 text-[10px] text-slate-400",
+            !isAssistant && "justify-end",
+          )}
+        >
           <span>{time}</span>
           {entry.itemId && <span className="font-mono">{entry.itemId}</span>}
         </div>
@@ -333,13 +294,13 @@ function TranscriptBubble({
         {isTranscribing ? (
           <div
             className={cn(
-              "flex items-center gap-2 rounded-2xl px-4 py-3 text-sm",
+              "flex items-center gap-2 rounded-2xl px-4 py-3 text-sm shadow-sm",
               isAssistant
-                ? "rounded-tl-sm bg-slate-100 text-slate-500"
-                : "rounded-tr-sm border border-blue-200 bg-blue-50 text-blue-600",
+                ? "rounded-tl-md bg-slate-100 text-slate-500"
+                : "rounded-tr-md border border-blue-200 bg-blue-50 text-blue-600",
             )}
           >
-            <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+            <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
             <span className="font-medium">【Transcribing】</span>
             {entry.status === "partial" && entry.text && (
               <span className="text-blue-400">{entry.text}</span>
@@ -348,10 +309,10 @@ function TranscriptBubble({
         ) : (
           <div
             className={cn(
-              "rounded-2xl px-4 py-3 text-sm leading-relaxed",
+              "rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm",
               isAssistant
-                ? "rounded-tl-sm bg-slate-100 text-slate-800"
-                : "rounded-tr-sm bg-blue-500 text-white",
+                ? "rounded-tl-md bg-slate-100 text-slate-800"
+                : "rounded-tr-md bg-blue-500 text-white",
             )}
           >
             {entry.text}
