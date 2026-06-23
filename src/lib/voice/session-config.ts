@@ -12,6 +12,8 @@ export function buildRealtimeSessionConfig(
     model: REALTIME_MODEL,
     instructions,
     tools,
+    // ユーザー音声転写イベントを確実に受信
+    include: ["item.input_audio_transcription.logprobs"] as const,
     audio: {
       input: {
         // 近距離マイク向けノイズ低減（スピーカー再生音の拾い込み軽減）

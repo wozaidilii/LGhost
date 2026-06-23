@@ -1,6 +1,6 @@
 "use client";
 
-import { PhoneOff } from "lucide-react";
+import { Loader2, PhoneOff } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "~/components/ui/button";
@@ -46,7 +46,8 @@ export function VoiceCallPanel({
 
   const disconnectRef = useRef<(() => void) | null>(null);
   const transcriptRef = useRef<TranscriptEntry[]>([]);
-  const transcriptEndRef = useRef<HTMLDivElement>(null);
+  const aiEndRef = useRef<HTMLDivElement>(null);
+  const userEndRef = useRef<HTMLDivElement>(null);
   const outcomeRef = useRef<
     "CONFIRMED" | "CHANGES_REPORTED" | "TRANSFERRED" | "FAILED" | undefined
   >(undefined);
@@ -104,10 +105,43 @@ export function VoiceCallPanel({
   );
 
   const handleTranscript = useCallback(
-    (entry: TranscriptEntry) => {
-      transcriptRef.current = [...transcriptRef.current, entry];
-      setTranscript(transcriptRef.current);
-      void appendTranscript.mutate({ sessionId, entry });
+    (entry: TranscriptEntry, action: "append" | "upsert") => {
+      const items = [...transcriptRef.current];
+
+      if (action === "upsert" && entry.itemId) {
+        const idx = items.findIndex((e) => e.itemId === entry.itemId);
+        if (idx >= 0) {
+          // 空の final はプレースホルダー削除
+          if (entry.status === "final" && !entry.text.trim()) {
+            items.splice(idx, 1);
+          } else {
+            items[idx] = { ...items[idx], ...entry };
+          }
+        } else if (!(entry.status === "final" && !entry.text.trim())) {
+          items.push(entry);
+        }
+      } else {
+        items.push(entry);
+      }
+
+      transcriptRef.current = items;
+      setTranscript(items);
+
+      if (
+        entry.status === "final" &&
+        entry.text.trim() &&
+        (entry.role === "user" || entry.role === "assistant")
+      ) {
+        void appendTranscript.mutate({
+          sessionId,
+          entry: {
+            role: entry.role,
+            text: entry.text,
+            ts: entry.ts,
+            itemId: entry.itemId,
+          },
+        });
+      }
     },
     [appendTranscript, sessionId],
   );
@@ -139,9 +173,13 @@ export function VoiceCallPanel({
     disconnectRef.current?.();
     disconnectRef.current = null;
 
+    const finalTranscript = transcriptRef.current.filter(
+      (e) => e.status === "final" || !e.status,
+    );
+
     await endSession.mutateAsync({
       sessionId,
-      transcript: transcriptRef.current,
+      transcript: finalTranscript,
       outcome: outcomeRef.current,
     });
 
@@ -162,13 +200,19 @@ export function VoiceCallPanel({
     return () => clearInterval(timer);
   }, [status]);
 
+  const aiEntries = transcript.filter((e) => e.role === "assistant");
+  const userEntries = transcript.filter((e) => e.role === "user");
+
   useEffect(() => {
-    transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [transcript]);
+    aiEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [aiEntries.length]);
+
+  useEffect(() => {
+    userEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [userEntries]);
 
   return (
     <div className="flex h-[calc(100vh-8rem)] flex-col overflow-hidden rounded-xl border bg-white shadow-sm">
-      {/* ヘッダー */}
       <header className="flex items-center justify-between border-b px-4 py-3">
         <div>
           <p className="text-xs text-slate-500">確認通話 — {customerName} 様</p>
@@ -192,25 +236,26 @@ export function VoiceCallPanel({
         </div>
       )}
 
-      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        {/* 転写エリア: 左=AI、右=お客様 */}
-        <div className="min-h-0 flex-1 overflow-y-auto p-4">
-          {transcript.length === 0 ? (
-            <div className="flex h-full items-center justify-center">
-              <p className="text-sm text-slate-400">通話を接続しています...</p>
-            </div>
-          ) : (
-            <div className="space-y-6">
-              {transcript.map((entry, i) => (
-                <TranscriptBubble
-                  key={entry.itemId ?? `${entry.ts}-${i}`}
-                  entry={entry}
-                />
-              ))}
-              <div ref={transcriptEndRef} />
-            </div>
-          )}
-        </div>
+      <div className="flex min-h-0 flex-1">
+        {/* 左: AI 発話 */}
+        <TranscriptColumn
+          title="AI オペレーター"
+          emptyText="AI の発話がここに表示されます"
+          entries={aiEntries}
+          align="left"
+          endRef={aiEndRef}
+          isLoading={status === "connecting"}
+        />
+
+        {/* 右: お客様発話 */}
+        <TranscriptColumn
+          title="お客様"
+          emptyText="お客様の発話がここに表示されます"
+          entries={userEntries}
+          align="right"
+          endRef={userEndRef}
+          isLoading={status === "connecting"}
+        />
 
         <CallScenarioSidebar
           currentStep={currentStep}
@@ -222,52 +267,105 @@ export function VoiceCallPanel({
   );
 }
 
-function TranscriptBubble({ entry }: { entry: TranscriptEntry }) {
-  const isAssistant = entry.role === "assistant";
-  const time = formatTimestamp(entry.ts);
+function TranscriptColumn({
+  title,
+  emptyText,
+  entries,
+  align,
+  endRef,
+  isLoading,
+}: {
+  title: string;
+  emptyText: string;
+  entries: TranscriptEntry[];
+  align: "left" | "right";
+  endRef: React.RefObject<HTMLDivElement | null>;
+  isLoading: boolean;
+}) {
+  const isAssistant = align === "left";
 
   return (
-    <div
-      className={cn(
-        "flex w-full",
-        isAssistant ? "justify-start" : "justify-end",
-      )}
-    >
-      <div
-        className={cn(
-          "max-w-[75%] space-y-1",
-          isAssistant ? "items-start" : "items-end",
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col border-r last:border-r-0 lg:max-w-[calc(50%-10rem)]">
+      <div className="border-b bg-slate-50 px-4 py-2">
+        <h3 className="text-xs font-semibold text-slate-600">{title}</h3>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto p-4">
+        {isLoading ? (
+          <p className="text-sm text-slate-400">接続中...</p>
+        ) : entries.length === 0 ? (
+          <p className="text-sm text-slate-400">{emptyText}</p>
+        ) : (
+          <div className="space-y-4">
+            {entries.map((entry, i) => (
+              <TranscriptBubble
+                key={entry.itemId ?? `${entry.ts}-${i}`}
+                entry={entry}
+                isAssistant={isAssistant}
+              />
+            ))}
+            <div ref={endRef} />
+          </div>
         )}
-      >
+      </div>
+    </div>
+  );
+}
+
+function TranscriptBubble({
+  entry,
+  isAssistant,
+}: {
+  entry: TranscriptEntry;
+  isAssistant: boolean;
+}) {
+  const time = formatTimestamp(entry.ts);
+  const isTranscribing =
+    entry.status === "transcribing" || entry.status === "partial";
+
+  return (
+    <div className={cn("flex w-full", isAssistant ? "justify-start" : "justify-end")}>
+      <div className="max-w-[90%] space-y-1">
         <div className="flex flex-wrap items-center gap-2 text-[10px] text-slate-400">
           <span>{time}</span>
-          {entry.itemId && (
-            <span className="font-mono">{entry.itemId}</span>
-          )}
+          {entry.itemId && <span className="font-mono">{entry.itemId}</span>}
         </div>
 
-        <div
-          className={cn(
-            "rounded-2xl px-4 py-3 text-sm leading-relaxed",
-            isAssistant
-              ? "rounded-tl-sm bg-slate-100 text-slate-800"
-              : "rounded-tr-sm bg-blue-500 text-white",
-          )}
-        >
-          {entry.text}
-        </div>
+        {isTranscribing ? (
+          <div
+            className={cn(
+              "flex items-center gap-2 rounded-2xl px-4 py-3 text-sm",
+              isAssistant
+                ? "rounded-tl-sm bg-slate-100 text-slate-500"
+                : "rounded-tr-sm border border-blue-200 bg-blue-50 text-blue-600",
+            )}
+          >
+            <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+            <span className="font-medium">【Transcribing】</span>
+            {entry.status === "partial" && entry.text && (
+              <span className="text-blue-400">{entry.text}</span>
+            )}
+          </div>
+        ) : (
+          <div
+            className={cn(
+              "rounded-2xl px-4 py-3 text-sm leading-relaxed",
+              isAssistant
+                ? "rounded-tl-sm bg-slate-100 text-slate-800"
+                : "rounded-tr-sm bg-blue-500 text-white",
+            )}
+          >
+            {entry.text}
+          </div>
+        )}
 
-        <Badge
-          variant="secondary"
-          className={cn(
-            "h-5 text-[10px]",
-            isAssistant
-              ? "bg-emerald-100 text-emerald-700"
-              : "bg-emerald-100 text-emerald-700",
-          )}
-        >
-          {isAssistant ? "Guardrail: Pass" : "Prompt Shield: Pass"}
-        </Badge>
+        {!isTranscribing && (
+          <Badge
+            variant="secondary"
+            className="h-5 bg-emerald-100 text-[10px] text-emerald-700"
+          >
+            {isAssistant ? "Guardrail: Pass" : "Prompt Shield: Pass"}
+          </Badge>
+        )}
       </div>
     </div>
   );
