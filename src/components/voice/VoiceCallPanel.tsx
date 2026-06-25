@@ -28,6 +28,8 @@ type VoiceCallPanelProps = {
   sessionId: string;
   customerName: string;
   onEnded?: () => void;
+  /** admin: サイドバー付き管理 UI / customer: お客様向けシンプル UI */
+  variant?: "admin" | "customer";
 };
 
 export function VoiceCallPanel({
@@ -35,7 +37,9 @@ export function VoiceCallPanel({
   sessionId,
   customerName,
   onEnded,
+  variant = "admin",
 }: VoiceCallPanelProps) {
+  const isCustomer = variant === "customer";
   const [status, setStatus] = useState<RealtimeStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
@@ -204,11 +208,30 @@ export function VoiceCallPanel({
   }, [transcript]);
 
   return (
-    <div className="flex h-[calc(100vh-8rem)] flex-col overflow-hidden rounded-xl border bg-white shadow-sm">
-      <header className="flex items-center justify-between border-b px-4 py-3">
+    <div
+      className={cn(
+        "flex flex-col overflow-hidden rounded-xl border shadow-sm",
+        isCustomer
+          ? "h-[calc(100vh-5rem)] border-white/10 bg-slate-900/80"
+          : "h-[calc(100vh-8rem)] bg-white",
+      )}
+    >
+      <header
+        className={cn(
+          "flex items-center justify-between border-b px-4 py-3",
+          isCustomer && "border-white/10",
+        )}
+      >
         <div>
-          <p className="text-xs text-slate-500">確認通話 — {customerName} 様</p>
-          <StatusBar status={status} duration={duration} />
+          <p
+            className={cn(
+              "text-xs",
+              isCustomer ? "text-indigo-200/70" : "text-slate-500",
+            )}
+          >
+            確認通話 — {customerName} 様
+          </p>
+          <StatusBar status={status} duration={duration} dark={isCustomer} />
         </div>
         <Button
           variant="destructive"
@@ -223,21 +246,41 @@ export function VoiceCallPanel({
       </header>
 
       {error && (
-        <div className="border-b bg-red-50 px-4 py-2 text-sm text-red-700">
+        <div
+          className={cn(
+            "border-b px-4 py-2 text-sm",
+            isCustomer
+              ? "border-red-500/30 bg-red-950/50 text-red-200"
+              : "bg-red-50 text-red-700",
+          )}
+        >
           {error}
         </div>
       )}
 
       <div className="flex min-h-0 flex-1 lg:flex-row">
-        {/* 対話タイムライン（ChatGPT 風） */}
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6">
           {status === "connecting" ? (
             <div className="flex h-full items-center justify-center">
-              <p className="text-sm text-slate-400">通話を接続しています...</p>
+              <p
+                className={cn(
+                  "text-sm",
+                  isCustomer ? "text-indigo-200/60" : "text-slate-400",
+                )}
+              >
+                通話を接続しています...
+              </p>
             </div>
           ) : transcript.length === 0 ? (
             <div className="flex h-full items-center justify-center">
-              <p className="text-sm text-slate-400">会話が始まるとここに表示されます</p>
+              <p
+                className={cn(
+                  "text-sm",
+                  isCustomer ? "text-indigo-200/60" : "text-slate-400",
+                )}
+              >
+                会話が始まるとここに表示されます
+              </p>
             </div>
           ) : (
             <div className="mx-auto flex max-w-3xl flex-col gap-5">
@@ -245,6 +288,7 @@ export function VoiceCallPanel({
                 <TranscriptBubble
                   key={entry.itemId ?? `${entry.ts}-${i}`}
                   entry={entry}
+                  dark={isCustomer}
                 />
               ))}
               <div ref={transcriptEndRef} />
@@ -252,17 +296,25 @@ export function VoiceCallPanel({
           )}
         </div>
 
-        <CallScenarioSidebar
-          currentStep={currentStep}
-          checklist={checklist}
-          functionCalls={functionCalls}
-        />
+        {!isCustomer && (
+          <CallScenarioSidebar
+            currentStep={currentStep}
+            checklist={checklist}
+            functionCalls={functionCalls}
+          />
+        )}
       </div>
     </div>
   );
 }
 
-function TranscriptBubble({ entry }: { entry: TranscriptEntry }) {
+function TranscriptBubble({
+  entry,
+  dark = false,
+}: {
+  entry: TranscriptEntry;
+  dark?: boolean;
+}) {
   const isAssistant = entry.role === "assistant";
   const time = formatTimestamp(entry.ts);
   const isTranscribing =
@@ -283,7 +335,8 @@ function TranscriptBubble({ entry }: { entry: TranscriptEntry }) {
       >
         <div
           className={cn(
-            "flex flex-wrap items-center gap-2 text-[10px] text-slate-400",
+            "flex flex-wrap items-center gap-2 text-[10px]",
+            dark ? "text-indigo-300/50" : "text-slate-400",
             !isAssistant && "justify-end",
           )}
         >
@@ -319,7 +372,7 @@ function TranscriptBubble({ entry }: { entry: TranscriptEntry }) {
           </div>
         )}
 
-        {!isTranscribing && (
+        {!isTranscribing && !dark && (
           <Badge
             variant="secondary"
             className="h-5 bg-emerald-100 text-[10px] text-emerald-700"
@@ -335,9 +388,11 @@ function TranscriptBubble({ entry }: { entry: TranscriptEntry }) {
 function StatusBar({
   status,
   duration,
+  dark = false,
 }: {
   status: RealtimeStatus;
   duration: number;
+  dark?: boolean;
 }) {
   const labels: Record<RealtimeStatus, string> = {
     idle: "待機中",
@@ -358,8 +413,20 @@ function StatusBar({
   return (
     <div className="mt-0.5 flex items-center gap-2">
       <span className={cn("h-2 w-2 rounded-full", colors[status])} />
-      <span className="text-sm font-medium text-slate-700">{labels[status]}</span>
-      <span className="font-mono text-sm text-slate-400">
+      <span
+        className={cn(
+          "text-sm font-medium",
+          dark ? "text-indigo-100" : "text-slate-700",
+        )}
+      >
+        {labels[status]}
+      </span>
+      <span
+        className={cn(
+          "font-mono text-sm",
+          dark ? "text-indigo-300/60" : "text-slate-400",
+        )}
+      >
         {formatDuration(duration)}
       </span>
     </div>

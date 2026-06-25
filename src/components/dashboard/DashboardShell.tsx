@@ -5,6 +5,7 @@ import {
   LayoutDashboard,
   LogOut,
   Phone,
+  PhoneCall,
   Settings,
 } from "lucide-react";
 import Link from "next/link";
@@ -34,11 +35,11 @@ export function DashboardShell({ children, userName }: DashboardShellProps) {
         <div className="border-b px-6 py-5">
           <Link href="/dashboard" className="flex items-center gap-2">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-sm font-bold text-white">
-              X
+              L
             </div>
             <div>
               <p className="font-bold text-slate-900">L-Ghost</p>
-              <p className="text-xs text-slate-500">Loamly · L-Ghost</p>
+              <p className="text-xs text-slate-500">管理画面 · Loamly</p>
             </div>
           </Link>
         </div>
@@ -61,9 +62,20 @@ export function DashboardShell({ children, userName }: DashboardShellProps) {
           ))}
         </nav>
 
-        <div className="border-t p-4">
+        <div className="space-y-2 border-t p-4">
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+            asChild
+          >
+            <Link href="/call">
+              <PhoneCall className="mr-2 h-4 w-4" />
+              お客様通話デモ
+            </Link>
+          </Button>
           {userName && (
-            <p className="mb-2 truncate text-sm text-slate-600">{userName}</p>
+            <p className="truncate px-1 text-sm text-slate-600">{userName}</p>
           )}
           <Button variant="outline" size="sm" className="w-full" asChild>
             <Link href="/api/auth/signout">

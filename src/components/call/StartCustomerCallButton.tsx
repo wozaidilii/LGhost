@@ -5,13 +5,23 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { Button } from "~/components/ui/button";
+import { cn } from "~/lib/utils";
 import { api } from "~/trpc/react";
 
-type StartCallButtonProps = {
+type StartCustomerCallButtonProps = {
   policyId: string;
+  label?: string;
+  className?: string;
+  size?: "default" | "lg";
 };
 
-export function StartCallButton({ policyId }: StartCallButtonProps) {
+/** 通話セッションを /call 配下で開始 */
+export function StartCustomerCallButton({
+  policyId,
+  label = "通話を開始",
+  className,
+  size = "lg",
+}: StartCustomerCallButtonProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
 
@@ -31,9 +41,17 @@ export function StartCallButton({ policyId }: StartCallButtonProps) {
   };
 
   return (
-    <Button size="lg" onClick={() => void handleStart()} disabled={loading}>
+    <Button
+      size={size}
+      className={cn(
+        "bg-emerald-500 text-white shadow-lg shadow-emerald-500/25 hover:bg-emerald-400",
+        className,
+      )}
+      onClick={() => void handleStart()}
+      disabled={loading}
+    >
       <Phone className="mr-2 h-5 w-5" />
-      {loading ? "接続準備中..." : "確認通話を開始"}
+      {loading ? "接続準備中..." : label}
     </Button>
   );
 }

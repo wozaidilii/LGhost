@@ -71,9 +71,13 @@ export default async function PolicyDetailPage({ params }: Props) {
         <Card>
           <CardHeader>
             <CardTitle>確認通話</CardTitle>
-            <CardDescription>
-              AI エージェントが契約内容を確認します
-            </CardDescription>
+          <CardDescription>
+            管理者向け — 通話は
+            <Link href="/call" className="mx-1 text-indigo-600 hover:underline">
+              お客様通話画面
+            </Link>
+            で開始されます
+          </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col items-center gap-4 py-6">
             <StartCallButton policyId={policy.id} />
